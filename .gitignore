@@ -1,0 +1,51 @@
+# Virtual Environment
+venv/
+env/
+ENV/
+fresh_venv/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log
+logs/
+video_creation.log
+
+# Generated files
+final_videos/*
+used_hooks.txt
+video_list.txt
+video_details.csv
+
+# Keep empty directories with .gitkeep
+!final_videos/.gitkeep
+!cta_videos/.gitkeep
+!hook_videos/.gitkeep
+!music/.gitkeep
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment files
+.env
+*.env
+
+# Keep example env file
+!.env.example
