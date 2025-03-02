@@ -6,10 +6,11 @@ fresh_venv/
 
 # Python cache files
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
+*.pyc
+*.pyo
+*.pyd
 .Python
+*.so
 
 # Distribution / packaging
 dist/
@@ -21,31 +22,42 @@ build/
 logs/
 video_creation.log
 
-# Generated files
-final_videos/*
-used_hooks.txt
-video_list.txt
-video_details.csv
+# Environment files
+.env
+*.env
+.env.*
+!.env.example
 
-# Keep empty directories with .gitkeep
+# Generated files and media
+final_videos/*
 !final_videos/.gitkeep
-!cta_videos/.gitkeep
+hook_videos/*
 !hook_videos/.gitkeep
+cta_videos/*
+!cta_videos/.gitkeep
+music/*
 !music/.gitkeep
 
-# OS specific files
+# Database
+*.db
+*.sqlite3
+
+# OS specific
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
-# IDE specific files
+# IDE specific
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# Environment files
-.env
-*.env
-
-# Keep example env file
-!.env.example
+# Project specific
+video_details.csv
+used_hooks.txt
+hooks.csv
