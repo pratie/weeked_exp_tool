@@ -1,4 +1,5 @@
 import pandas as pd
+pip install scikit-learn nltk textblob pandas matplotlib seaborn numpy
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
