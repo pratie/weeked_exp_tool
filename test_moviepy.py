@@ -469,3 +469,406 @@ print("1. Section-wise accuracy performance")
 print("2. Confidence vs accuracy alignment")
 print("3. Sections requiring attention for accuracy improvement")
 print("4. Over/under-confident sections identified")
+
+
+
+##################################################################################################
+
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.decomposition import LatentDirichletAllocation
+from sklearn.cluster import KMeans
+from sklearn.metrics.pairwise import cosine_similarity
+import nltk
+from nltk.corpus import stopwords
+import warnings
+warnings.filterwarnings('ignore')
+
+# Download NLTK data
+try:
+    nltk.download('stopwords', quiet=True)
+    print("✅ NLTK ready")
+except:
+    print("⚠️ Install NLTK: pip install nltk")
+
+# Load data
+df = pd.read_csv('your_file.csv')
+df.columns = df.columns.str.strip()
+
+print("="*80)
+print("USER JUSTIFICATION TEXT - PURE INSIGHTS ANALYSIS")
+print("="*80)
+
+# Extract justification texts
+justifications = df['User Justification Free Text'].dropna().astype(str).tolist()
+print(f"📊 Analyzing {len(justifications)} user justifications")
+
+if len(justifications) < 10:
+    print("⚠️ Need at least 10 justifications for meaningful analysis")
+    exit()
+
+# Clean and prepare texts
+def clean_text(text):
+    """Basic text cleaning"""
+    text = str(text).lower()
+    text = ' '.join(text.split())  # Remove extra whitespace
+    return text
+
+cleaned_texts = [clean_text(text) for text in justifications if len(text.strip()) > 10]
+print(f"📝 {len(cleaned_texts)} texts after cleaning")
+
+# =============================================================================
+# 1. TOPIC MODELING (LDA) - DISCOVER HIDDEN THEMES
+# =============================================================================
+print("\n\n🔍 1. TOPIC MODELING - DISCOVERING HIDDEN USER THEMES")
+print("="*60)
+
+def discover_topics(texts, n_topics=5):
+    """Discover hidden topics using LDA"""
+    
+    # Get stopwords
+    try:
+        stop_words = list(stopwords.words('english'))
+    except:
+        stop_words = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by']
+    
+    # Add custom domain stopwords
+    custom_stops = ['field', 'form', 'section', 'information', 'data', 'text', 'input', 'system']
+    stop_words.extend(custom_stops)
+    
+    # Create document-term matrix
+    vectorizer = CountVectorizer(
+        max_features=100,
+        stop_words=stop_words,
+        ngram_range=(1, 2),  # Words and word-pairs
+        min_df=2,  # Must appear in at least 2 texts
+        max_df=0.8  # Remove words in >80% of texts
+    )
+    
+    doc_term_matrix = vectorizer.fit_transform(texts)
+    feature_names = vectorizer.get_feature_names_out()
+    
+    # Perform LDA topic modeling
+    lda = LatentDirichletAllocation(
+        n_components=n_topics,
+        random_state=42,
+        max_iter=100
+    )
+    
+    lda_result = lda.fit_transform(doc_term_matrix)
+    
+    return lda, lda_result, feature_names, vectorizer
+
+# Determine optimal number of topics
+n_topics = min(6, max(3, len(cleaned_texts) // 8))
+print(f"🎯 Discovering {n_topics} hidden topics...")
+
+lda_model, topic_distributions, feature_names, vectorizer = discover_topics(cleaned_texts, n_topics)
+
+# Display discovered topics
+print(f"\n🤖 DISCOVERED {n_topics} HIDDEN THEMES:")
+print("-" * 50)
+
+topic_themes = []
+for topic_idx, topic in enumerate(lda_model.components_):
+    # Get top words for this topic
+    top_word_indices = topic.argsort()[-8:][::-1]
+    top_words = [feature_names[i] for i in top_word_indices]
+    
+    topic_themes.append({
+        'topic_num': topic_idx + 1,
+        'keywords': top_words,
+        'theme': ', '.join(top_words[:4])
+    })
+    
+    print(f"📌 TOPIC {topic_idx + 1}: {', '.join(top_words[:4])}")
+    print(f"   Keywords: {', '.join(top_words)}")
+
+# Assign each justification to its dominant topic
+dominant_topics = np.argmax(topic_distributions, axis=1)
+
+# Show distribution of topics
+topic_counts = pd.Series(dominant_topics).value_counts().sort_index()
+print(f"\n📈 TOPIC DISTRIBUTION:")
+for topic_idx, count in topic_counts.items():
+    percentage = count / len(dominant_topics) * 100
+    theme = topic_themes[topic_idx]['theme']
+    print(f"   Topic {topic_idx + 1} ({theme}): {count} texts ({percentage:.1f}%)")
+
+# Sample texts for each topic
+print(f"\n📝 SAMPLE JUSTIFICATIONS BY TOPIC:")
+for topic_idx in range(n_topics):
+    topic_texts = [cleaned_texts[i] for i in range(len(cleaned_texts)) if dominant_topics[i] == topic_idx]
+    if topic_texts:
+        sample = topic_texts[0]
+        theme = topic_themes[topic_idx]['theme']
+        print(f"\n🔸 Topic {topic_idx + 1} ({theme}):")
+        print(f"   \"{sample[:150]}{'...' if len(sample) > 150 else ''}\"")
+
+# Visualize topics
+plt.figure(figsize=(15, 10))
+
+# Topic distribution
+plt.subplot(2, 3, 1)
+topic_counts.plot(kind='bar', color='skyblue', alpha=0.8)
+plt.title('Distribution of User Topics', fontweight='bold')
+plt.xlabel('Topic Number')
+plt.ylabel('Number of Justifications')
+plt.xticks(rotation=0)
+
+# Topic word importance heatmap
+plt.subplot(2, 3, 2)
+topic_word_matrix = lda_model.components_[:, :20]  # Top 20 words
+sns.heatmap(topic_word_matrix, cmap='Blues', cbar=True)
+plt.title('Topic-Word Importance Matrix', fontweight='bold')
+plt.xlabel('Top Words')
+plt.ylabel('Topics')
+
+plt.tight_layout()
+plt.show()
+
+# =============================================================================
+# 2. TF-IDF ANALYSIS - DISTINCTIVE PHRASES
+# =============================================================================
+print("\n\n🔤 2. TF-IDF ANALYSIS - DISTINCTIVE PHRASES")
+print("="*60)
+
+def extract_distinctive_phrases(texts, max_features=30):
+    """Extract most distinctive phrases using TF-IDF"""
+    
+    try:
+        stop_words = list(stopwords.words('english'))
+    except:
+        stop_words = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by']
+    
+    custom_stops = ['field', 'form', 'section', 'information', 'data']
+    stop_words.extend(custom_stops)
+    
+    # TF-IDF vectorizer
+    tfidf = TfidfVectorizer(
+        max_features=max_features,
+        stop_words=stop_words,
+        ngram_range=(1, 2),  # Single words and bigrams
+        min_df=2,
+        max_df=0.7
+    )
+    
+    tfidf_matrix = tfidf.fit_transform(texts)
+    feature_names = tfidf.get_feature_names_out()
+    
+    # Calculate average TF-IDF scores
+    mean_scores = np.mean(tfidf_matrix.toarray(), axis=0)
+    phrase_scores = list(zip(feature_names, mean_scores))
+    phrase_scores.sort(key=lambda x: x[1], reverse=True)
+    
+    return phrase_scores, tfidf_matrix, tfidf
+
+# Extract distinctive phrases
+print("🔍 Extracting most distinctive phrases...")
+distinctive_phrases, tfidf_matrix, tfidf_vectorizer = extract_distinctive_phrases(cleaned_texts)
+
+print(f"\n💎 MOST DISTINCTIVE PHRASES:")
+print("-" * 40)
+for i, (phrase, score) in enumerate(distinctive_phrases[:15], 1):
+    print(f"{i:2d}. '{phrase}' (score: {score:.3f})")
+
+# Find phrases unique to each topic
+print(f"\n🎯 DISTINCTIVE PHRASES BY TOPIC:")
+print("-" * 40)
+
+for topic_idx in range(n_topics):
+    # Get texts for this topic
+    topic_texts = [cleaned_texts[i] for i in range(len(cleaned_texts)) if dominant_topics[i] == topic_idx]
+    
+    if len(topic_texts) >= 3:  # Need minimum texts
+        topic_phrases, _, _ = extract_distinctive_phrases(topic_texts, max_features=10)
+        theme = topic_themes[topic_idx]['theme']
+        
+        print(f"\n📌 Topic {topic_idx + 1} ({theme}):")
+        for phrase, score in topic_phrases[:5]:
+            print(f"   • '{phrase}' ({score:.3f})")
+
+# Visualize TF-IDF results
+plt.figure(figsize=(14, 8))
+
+# Overall distinctive phrases
+plt.subplot(2, 2, 1)
+top_phrases = distinctive_phrases[:12]
+phrases, scores = zip(*top_phrases)
+plt.barh(range(len(phrases)), scores, color='coral', alpha=0.8)
+plt.yticks(range(len(phrases)), [p[:25] + '...' if len(p) > 25 else p for p in phrases])
+plt.title('Most Distinctive Phrases', fontweight='bold')
+plt.xlabel('TF-IDF Score')
+
+# Phrase length distribution
+plt.subplot(2, 2, 2)
+phrase_lengths = [len(phrase.split()) for phrase, _ in distinctive_phrases[:20]]
+plt.hist(phrase_lengths, bins=5, alpha=0.7, color='lightgreen', edgecolor='black')
+plt.title('Phrase Length Distribution', fontweight='bold')
+plt.xlabel('Number of Words in Phrase')
+plt.ylabel('Frequency')
+
+plt.tight_layout()
+plt.show()
+
+# =============================================================================
+# 3. SEMANTIC SIMILARITY CLUSTERING
+# =============================================================================
+print("\n\n🧩 3. SEMANTIC SIMILARITY CLUSTERING")
+print("="*60)
+
+def semantic_clustering(texts, tfidf_matrix, n_clusters=5):
+    """Group similar justifications using semantic clustering"""
+    
+    # Calculate cosine similarity matrix
+    similarity_matrix = cosine_similarity(tfidf_matrix)
+    
+    # Perform K-means clustering on TF-IDF vectors
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    clusters = kmeans.fit_predict(tfidf_matrix.toarray())
+    
+    return clusters, similarity_matrix, kmeans
+
+# Determine number of clusters
+n_clusters = min(5, max(3, len(cleaned_texts) // 10))
+print(f"🎯 Grouping into {n_clusters} semantic clusters...")
+
+clusters, similarity_matrix, kmeans_model = semantic_clustering(cleaned_texts, tfidf_matrix, n_clusters)
+
+# Analyze clusters
+print(f"\n🔗 SEMANTIC CLUSTERS (Similar Reasoning Patterns):")
+print("-" * 55)
+
+cluster_analysis = []
+for cluster_id in range(n_clusters):
+    # Get texts in this cluster
+    cluster_texts = [cleaned_texts[i] for i in range(len(cleaned_texts)) if clusters[i] == cluster_id]
+    cluster_size = len(cluster_texts)
+    
+    if cluster_size >= 2:
+        # Extract representative phrases for this cluster
+        cluster_tfidf = TfidfVectorizer(
+            stop_words='english',
+            max_features=8,
+            ngram_range=(1, 2),
+            min_df=1
+        )
+        
+        try:
+            cluster_matrix = cluster_tfidf.fit_transform(cluster_texts)
+            cluster_features = cluster_tfidf.get_feature_names_out()
+            cluster_scores = np.mean(cluster_matrix.toarray(), axis=0)
+            top_cluster_words = [cluster_features[i] for i in cluster_scores.argsort()[-4:][::-1]]
+        except:
+            top_cluster_words = ['no distinctive words']
+        
+        cluster_analysis.append({
+            'cluster_id': cluster_id + 1,
+            'size': cluster_size,
+            'keywords': top_cluster_words,
+            'sample_text': cluster_texts[0] if cluster_texts else ""
+        })
+        
+        print(f"\n🔸 CLUSTER {cluster_id + 1} ({cluster_size} similar justifications):")
+        print(f"   Common themes: {', '.join(top_cluster_words)}")
+        print(f"   Sample: \"{cluster_texts[0][:120]}{'...' if len(cluster_texts[0]) > 120 else ''}\"")
+
+# Cluster distribution
+cluster_counts = pd.Series(clusters).value_counts().sort_index()
+print(f"\n📊 CLUSTER DISTRIBUTION:")
+for cluster_id, count in cluster_counts.items():
+    percentage = count / len(clusters) * 100
+    analysis = next((c for c in cluster_analysis if c['cluster_id'] == cluster_id + 1), None)
+    keywords = ', '.join(analysis['keywords'][:2]) if analysis else 'unknown'
+    print(f"   Cluster {cluster_id + 1} ({keywords}): {count} texts ({percentage:.1f}%)")
+
+# Visualize clustering results
+plt.figure(figsize=(16, 10))
+
+# Cluster size distribution
+plt.subplot(2, 3, 1)
+cluster_counts.plot(kind='bar', color='lightblue', alpha=0.8)
+plt.title('Semantic Cluster Distribution', fontweight='bold')
+plt.xlabel('Cluster Number')
+plt.ylabel('Number of Justifications')
+plt.xticks(rotation=0)
+
+# Similarity heatmap (sample)
+plt.subplot(2, 3, 2)
+if len(similarity_matrix) <= 50:  # Only for small datasets
+    sns.heatmap(similarity_matrix[:20, :20], cmap='Blues', cbar=True)
+    plt.title('Text Similarity Matrix (Sample)', fontweight='bold')
+else:
+    plt.text(0.5, 0.5, 'Similarity Matrix\n(too large to display)', 
+             ha='center', va='center', transform=plt.gca().transAxes)
+    plt.title('Text Similarity Matrix', fontweight='bold')
+
+# Topic vs Cluster comparison
+plt.subplot(2, 3, 3)
+if len(dominant_topics) == len(clusters):
+    topic_cluster_df = pd.DataFrame({
+        'Topic': dominant_topics,
+        'Cluster': clusters
+    })
+    crosstab = pd.crosstab(topic_cluster_df['Topic'], topic_cluster_df['Cluster'])
+    sns.heatmap(crosstab, annot=True, fmt='d', cmap='Greens')
+    plt.title('Topics vs Clusters Overlap', fontweight='bold')
+    plt.xlabel('Semantic Cluster')
+    plt.ylabel('LDA Topic')
+
+plt.tight_layout()
+plt.show()
+
+# =============================================================================
+# COMPREHENSIVE INSIGHTS SUMMARY
+# =============================================================================
+print("\n\n🎯 COMPREHENSIVE INSIGHTS SUMMARY")
+print("="*60)
+
+# Create results dataframe
+results_df = pd.DataFrame({
+    'justification_text': cleaned_texts,
+    'dominant_topic': dominant_topics,
+    'semantic_cluster': clusters
+})
+
+# Add topic themes
+results_df['topic_theme'] = results_df['dominant_topic'].map(
+    {i: theme['theme'] for i, theme in enumerate(topic_themes)}
+)
+
+# Add cluster info
+results_df['cluster_keywords'] = results_df['semantic_cluster'].map(
+    {(c['cluster_id']-1): ', '.join(c['keywords'][:2]) for c in cluster_analysis}
+)
+
+print(f"📋 ANALYSIS RESULTS:")
+print(f"   • {len(cleaned_texts)} justifications analyzed")
+print(f"   • {n_topics} hidden topics discovered")
+print(f"   • {len(distinctive_phrases)} distinctive phrases identified")
+print(f"   • {n_clusters} semantic clusters found")
+
+print(f"\n🔍 TOP INSIGHTS:")
+print(f"1. Most common topic: Topic {topic_counts.idxmax() + 1} ({topic_themes[topic_counts.idxmax()]['theme']})")
+print(f"2. Largest cluster: Cluster {cluster_counts.idxmax() + 1} ({cluster_counts.max()} similar justifications)")
+print(f"3. Most distinctive phrase: '{distinctive_phrases[0][0]}'")
+
+# Export results
+results_df.to_csv('user_justification_insights.csv', index=False)
+print(f"\n💾 Results exported to 'user_justification_insights.csv'")
+
+print("\n" + "="*80)
+print("USER JUSTIFICATION INSIGHTS ANALYSIS COMPLETE!")
+print("="*80)
+print("\n🎯 WHAT YOU DISCOVERED:")
+print("1. Hidden topics users actually discuss (not what you expected)")
+print("2. Most distinctive phrases that characterize user thinking")
+print("3. Groups of users with similar reasoning patterns")
+print("\n📈 BUSINESS VALUE:")
+print("• Focus development on most discussed topics")
+print("• Use distinctive phrases to improve UI copy")
+print("• Tailor help content to different user reasoning patterns")
