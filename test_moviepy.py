@@ -322,3 +322,150 @@ print("1. Review high-priority feedback items first")
 print("2. Address sections with lowest sentiment scores")
 print("3. Implement changes based on specific user suggestions")
 print("4. Set up regular feedback monitoring")
+
+------------------------------------------------------------------------------------------------------------------
+
+
+
+# 2. ACCURACY ANALYSIS BY SECTION
+print("\n\n2. ACCURACY ANALYSIS BY SECTION")
+print("-" * 40)
+
+if 'Accuracy(%)' in df.columns and 'GENESIS Section Name' in df.columns:
+    section_accuracy = df.groupby('GENESIS Section Name').agg({
+        'Accuracy(%)': ['mean', 'std', 'count', 'min', 'max']
+    }).round(2)
+    
+    # Flatten column names
+    section_accuracy.columns = ['avg_accuracy', 'std_accuracy', 'record_count', 'min_accuracy', 'max_accuracy']
+    section_accuracy = section_accuracy.sort_values('avg_accuracy', ascending=False)
+    
+    print("Accuracy statistics by section (best performing first):")
+    print(section_accuracy)
+    
+    # Identify sections with low accuracy
+    low_accuracy_threshold = 70  # You can adjust this threshold
+    low_accuracy_sections = section_accuracy[section_accuracy['avg_accuracy'] < low_accuracy_threshold]
+    
+    if len(low_accuracy_sections) > 0:
+        print(f"\n⚠️  SECTIONS WITH ACCURACY BELOW {low_accuracy_threshold}%:")
+        for section, row in low_accuracy_sections.iterrows():
+            print(f"  • {section}: {row['avg_accuracy']:.1f}% avg accuracy ({row['record_count']} records)")
+    
+    # Accuracy visualization
+    plt.figure(figsize=(14, 8))
+    
+    plt.subplot(2, 2, 1)
+    section_accuracy['avg_accuracy'].plot(kind='bar', color='skyblue')
+    plt.title('Average Accuracy by Section')
+    plt.xlabel('Section')
+    plt.ylabel('Average Accuracy (%)')
+    plt.xticks(rotation=45)
+    plt.axhline(y=low_accuracy_threshold, color='red', linestyle='--', alpha=0.7, label=f'{low_accuracy_threshold}% threshold')
+    plt.legend()
+    
+    plt.subplot(2, 2, 2)
+    section_accuracy['record_count'].plot(kind='bar', color='lightgreen')
+    plt.title('Number of Records by Section')
+    plt.xlabel('Section')
+    plt.ylabel('Record Count')
+    plt.xticks(rotation=45)
+    
+    plt.subplot(2, 2, 3)
+    df['Accuracy(%)'].hist(bins=20, alpha=0.7, color='orange')
+    plt.title('Overall Accuracy Distribution')
+    plt.xlabel('Accuracy (%)')
+    plt.ylabel('Frequency')
+    plt.axvline(x=df['Accuracy(%)'].mean(), color='red', linestyle='--', label=f'Mean: {df["Accuracy(%)"].mean():.1f}%')
+    plt.legend()
+    
+    plt.subplot(2, 2, 4)
+    # Box plot of accuracy by section (top 8 sections by record count)
+    top_sections = section_accuracy.nlargest(8, 'record_count').index
+    section_data = df[df['GENESIS Section Name'].isin(top_sections)]
+    section_data.boxplot(column='Accuracy(%)', by='GENESIS Section Name', ax=plt.gca())
+    plt.title('Accuracy Distribution by Top Sections')
+    plt.xlabel('Section')
+    plt.ylabel('Accuracy (%)')
+    plt.xticks(rotation=45)
+    
+    plt.tight_layout()
+    plt.show()
+
+else:
+    print("Accuracy or Section columns not found in the dataset")
+
+# 3. CONFIDENCE vs ACCURACY ANALYSIS BY SECTION
+print("\n\n3. CONFIDENCE vs ACCURACY ANALYSIS BY SECTION")
+print("-" * 40)
+
+if all(col in df.columns for col in ['Confidence(%)', 'Accuracy(%)', 'GENESIS Section Name']):
+    conf_acc_analysis = df.groupby('GENESIS Section Name').agg({
+        'Confidence(%)': ['mean', 'std'],
+        'Accuracy(%)': ['mean', 'std'],
+    }).round(2)
+    
+    # Flatten column names
+    conf_acc_analysis.columns = ['avg_confidence', 'std_confidence', 'avg_accuracy', 'std_accuracy']
+    
+    # Calculate confidence-accuracy gap
+    conf_acc_analysis['conf_acc_gap'] = conf_acc_analysis['avg_confidence'] - conf_acc_analysis['avg_accuracy']
+    conf_acc_analysis = conf_acc_analysis.sort_values('conf_acc_gap', ascending=False)
+    
+    print("Confidence vs Accuracy by Section:")
+    print("(Positive gap = overconfident, Negative gap = underconfident)")
+    print(conf_acc_analysis)
+    
+    # Identify problematic patterns
+    overconfident_sections = conf_acc_analysis[conf_acc_analysis['conf_acc_gap'] > 10]
+    underconfident_sections = conf_acc_analysis[conf_acc_analysis['conf_acc_gap'] < -10]
+    
+    if len(overconfident_sections) > 0:
+        print(f"\n🔴 OVERCONFIDENT SECTIONS (confidence > accuracy by >10%):")
+        for section, row in overconfident_sections.iterrows():
+            print(f"  • {section}: {row['conf_acc_gap']:.1f}% gap (Conf: {row['avg_confidence']:.1f}%, Acc: {row['avg_accuracy']:.1f}%)")
+    
+    if len(underconfident_sections) > 0:
+        print(f"\n🟡 UNDERCONFIDENT SECTIONS (accuracy > confidence by >10%):")
+        for section, row in underconfident_sections.iterrows():
+            print(f"  • {section}: {row['conf_acc_gap']:.1f}% gap (Conf: {row['avg_confidence']:.1f}%, Acc: {row['avg_accuracy']:.1f}%)")
+    
+    # Visualization
+    plt.figure(figsize=(12, 8))
+    
+    plt.subplot(2, 2, 1)
+    plt.scatter(conf_acc_analysis['avg_confidence'], conf_acc_analysis['avg_accuracy'], alpha=0.7)
+    plt.plot([0, 100], [0, 100], 'r--', alpha=0.5, label='Perfect correlation')
+    plt.xlabel('Average Confidence (%)')
+    plt.ylabel('Average Accuracy (%)')
+    plt.title('Confidence vs Accuracy by Section')
+    plt.legend()
+    
+    # Add section labels to points
+    for i, section in enumerate(conf_acc_analysis.index):
+        plt.annotate(section[:15], (conf_acc_analysis.iloc[i]['avg_confidence'], 
+                                   conf_acc_analysis.iloc[i]['avg_accuracy']), 
+                    fontsize=8, alpha=0.7)
+    
+    plt.subplot(2, 2, 2)
+    conf_acc_analysis['conf_acc_gap'].plot(kind='bar', color=['red' if x > 10 else 'yellow' if x < -10 else 'green' for x in conf_acc_analysis['conf_acc_gap']])
+    plt.title('Confidence-Accuracy Gap by Section')
+    plt.xlabel('Section')
+    plt.ylabel('Gap (Confidence - Accuracy)')
+    plt.xticks(rotation=45)
+    plt.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+    plt.axhline(y=10, color='red', linestyle='--', alpha=0.5, label='Overconfident threshold')
+    plt.axhline(y=-10, color='orange', linestyle='--', alpha=0.5, label='Underconfident threshold')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.show()
+
+print("\n" + "="*60)
+print("ACCURACY ANALYSIS COMPLETE!")
+print("="*60)
+print("\nKey Findings:")
+print("1. Section-wise accuracy performance")
+print("2. Confidence vs accuracy alignment")
+print("3. Sections requiring attention for accuracy improvement")
+print("4. Over/under-confident sections identified")
